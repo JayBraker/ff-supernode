@@ -58,18 +58,18 @@
     state: started
 
 - name: Enable dns resolving with systemd-resolved
-  register: enableresolved
+  register: restartresolved
   file: src=/run/systemd/resolve/resolv.conf dest=/etc/resolv.conf state=link force=yes
 
 - name: Install iface configs
-  register: enableresolved
+  register: restartnetworkd
   template:
     src: 1x-iface.network.j2
     dest: /etc/systemd/network/10-{{ item.1.iface }}.network
   with_indexed_items: "{{ networkd_configures }}"
 
 - name: Install iface link config
-  register: enableresolved
+  register: restartnetworkd
   template:
     src: 1x-iface.link.j2
     dest: /etc/systemd/network/10-{{ item.1.iface }}.link
@@ -77,7 +77,7 @@
   when: item.1.fixed_mac | default(false)
 
 - name: Remove fixed mac config
-  register: enableresolved
+  register: restartnetworkd
   file:
     path: "/etc/systemd/network/10-{{ item.1.iface }}.link"
     state: "absent"
@@ -88,13 +88,13 @@
   service:
     name: systemd-networkd
     state: restarted
-  when: enableresolved is changed
+  when: restartnetworkd is changed
 
 - name: Directly restart resolved
   service:
     name: systemd-resolved
     state: restarted
-  when: enableresolved is changed
+  when: restartresolved is changed
 
 - name: Disable debian networking
   service:
