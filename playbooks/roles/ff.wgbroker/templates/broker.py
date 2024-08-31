@@ -5,10 +5,22 @@ import re
 import subprocess
 import unicodedata
 
+from contextlib import contextmanager
 from flask import Flask, jsonify, request
+from functools import lru_cache
+from pathlib import Path
+from time import sleep
 
+def load_keys() -> dict[str, str]:
+    keys = {}
+    for keyfile in Path(REPO).rglob("*"):
+        with keyfile.open() as kf:
+            keys[hash(kf.read())] = keyfile.name
+    return keys
 
 REPO = "/etc/wireguard/peers-wg"
+LOCKFILE = ".broker.lock"
+KEYS = load_keys()
 
 app = Flask(__name__)
 # TODO(ruairi): Refactor load_config to return Dataclass.
@@ -28,6 +40,18 @@ def slugify(value):
     value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore').decode('ascii')
     value = _slugify_strip_re.sub('', value).strip().lower()
     return _slugify_hyphenate_re.sub('-', value)
+
+@contextmanager
+def lock():
+    # Code to acquire resource, e.g.:
+    lockfile = Path(REPO)/LOCKFILE
+    while lockfile.is_file():
+        sleep(5)
+    lockfile.touch()
+    try:
+        yield
+    finally:
+        lockfile.unlink()
 
 def demote(user_uid, user_gid):
     def result():
@@ -83,12 +107,13 @@ def add_key():
         if not data.get('public_key'):
             raise Exception(f'public_key missing {data}')
         filename = slugify(f"{data['node_name']}_{data['public_key'][:4]}")
-        precheck(filename, data['public_key'])
-        execute_autouser(f"git -C {REPO} reset --hard origin/main")
-        pull_repo()
-        add_file(filename, data['public_key'])
-        commit_repo(filename)
-        push_repo()
+        with lock():
+            precheck(filename, data['public_key'])
+            execute_autouser(f"git -C {REPO} reset --hard origin/main")
+            pull_repo()
+            add_file(filename, data['public_key'])
+            commit_repo(filename)
+            push_repo()
     except Exception as e:
         error_msg = f'Error adding key: {e}'
         print(error_msg)
