@@ -5,6 +5,8 @@ import re
 import subprocess
 import unicodedata
 
+from pathlib import Path
+
 from flask import Flask, jsonify, request
 
 
@@ -69,6 +71,17 @@ def precheck(filename, publickey):
         if os.path.isfile(fname):
             raise Exception(f'{filename} already exists')
 
+def remove_existing_key(publickey):
+    for fname in Path(REPO).rglob('*'):
+        if fname.is_dir():
+            continue
+        if '.git' in fname.relative_to(REPO).parts:
+            continue
+        with fname.open('r') as keyonrecord:
+            keyonrecord = keyonrecord.read()
+            if publickey.strip() == keyonrecord.strip():
+                fname.unlink()
+
 def add_file(filename, publickey):
     execute_autouser(f"echo {publickey} > {REPO}/{filename}")
 
@@ -86,6 +99,7 @@ def add_key():
         precheck(filename, data['public_key'])
         execute_autouser(f"git -C {REPO} reset --hard origin/main")
         pull_repo()
+        remove_existing_key(data['public_key'])
         add_file(filename, data['public_key'])
         commit_repo(filename)
         push_repo()
